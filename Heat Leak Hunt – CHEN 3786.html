@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Heat Leak Hunt – CHEN 3786</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --surface2:#f6f8fa; --ink:#15202b; --muted:#566473; --line:#d3dae2;
+  --cold:#2f5d8a; --hot:#c8402a; --ok:#1f7a4d; --okbg:#e3f3ea; --badbg:#fbe9e5; --warnbg:#fff4dc;
+  --i0:#1b1b3a; --i1:#4b1d6b; --i2:#a3245a; --i3:#e0532d; --i4:#f5a623; --i5:#fde68a;
+  color-scheme: light;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1a24; --surface:#172634; --surface2:#1d2f40; --ink:#e6edf3; --muted:#9aabbb; --line:#2c3e50;
+    --cold:#7fb0e0; --hot:#ff7a5c; --ok:#5fd394; --okbg:#173527; --badbg:#3d1f1a; --warnbg:#3a3015;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1a24; --surface:#172634; --surface2:#1d2f40; --ink:#e6edf3; --muted:#9aabbb; --line:#2c3e50;
+  --cold:#7fb0e0; --hot:#ff7a5c; --ok:#5fd394; --okbg:#173527; --badbg:#3d1f1a; --warnbg:#3a3015;
+  color-scheme: dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Archivo",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:16px;line-height:1.5;font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--cold);outline-offset:2px}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 18px 60px}
+header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:18px}
+.brand h1{margin:0;font-stretch:125%;font-weight:800;font-size:clamp(1.7rem,4vw,2.6rem);line-height:1.05;letter-spacing:-.01em}
+.brand p{margin:4px 0 0;color:var(--muted);font-size:.95rem}
+.scorebox{display:flex;gap:16px;align-items:center}
+.score{font-stretch:115%;font-weight:700;font-size:1.4rem}
+.score small{display:block;font-size:.75rem;font-weight:500;color:var(--muted);font-stretch:100%}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600}
+.btn:hover{border-color:var(--cold)}
+.btn.primary{background:var(--cold);border-color:var(--cold);color:#fff}
+:root[data-theme="dark"] .btn.primary{color:#0f1a24}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .btn.primary{color:#0f1a24}}
+.btn.ghost{background:transparent}
+
+/* Isotherm track: the signature element */
+.track{position:relative;margin:6px 0 26px;padding:0 4px}
+.track .ramp{height:14px;border-radius:7px;background:linear-gradient(90deg,#9ec5ea 0%,#5b8fc2 12%,var(--i1) 30%,var(--i2) 48%,var(--i3) 66%,var(--i4) 84%,var(--i5) 100%)}
+.track .nodes{display:grid;grid-template-columns:repeat(10,1fr);margin-top:-22px}
+.node{display:flex;flex-direction:column;align-items:center;gap:4px;background:none;border:0;cursor:pointer;padding:0;min-width:0}
+.node .dot{width:30px;height:30px;border-radius:50%;background:var(--surface);border:3px solid var(--ink);display:grid;place-items:center;font-weight:800;font-size:.85rem}
+.node.active .dot{background:var(--ink);color:var(--surface);transform:scale(1.12)}
+.node.done .dot{border-color:var(--ok)}
+.node .lbl{font-size:.74rem;text-align:center;line-height:1.2;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.node.active .lbl{color:var(--ink);font-weight:700}
+.node .stars{font-size:.72rem;letter-spacing:1px;color:var(--i4);min-height:1em}
+.track .chap{display:flex;justify-content:space-between;font-size:.78rem;color:var(--muted);margin-top:6px}
+@media (max-width:720px){
+  .track{overflow-x:auto}
+  .track .ramp,.track .nodes,.track .chap{min-width:720px}
+}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.panel+.panel{margin-top:18px}
+.panel h2{margin:0 0 4px;font-stretch:118%;font-weight:750;font-size:1.35rem;line-height:1.2}
+.panel h3{margin:18px 0 8px;font-size:1.02rem;font-weight:700}
+.meta{color:var(--muted);font-size:.86rem;margin-bottom:10px}
+.story{margin:8px 0 12px;max-width:68ch}
+table.given{width:100%;border-collapse:collapse;font-size:.94rem}
+table.given td{padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+table.given td.v{text-align:right;font-weight:700;white-space:nowrap}
+table.given td.u{color:var(--muted);white-space:nowrap}
+.code{display:inline-block;background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:1px 8px;font-weight:700}
+
+.ask{border:1px solid var(--line);border-radius:10px;padding:12px;margin:10px 0;background:var(--surface2)}
+.ask .q{font-weight:600;margin-bottom:8px}
+.ask .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ask input{width:150px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.ask .unit{color:var(--muted);font-size:.92rem}
+.ask .fb{margin-top:8px;font-size:.92rem;border-radius:8px;padding:6px 10px}
+.ask.ok{border-color:var(--ok)} .fb.ok{background:var(--okbg)} .fb.bad{background:var(--badbg)} .fb.rev{background:var(--warnbg)}
+.tries{font-size:.8rem;color:var(--muted)}
+
+details.method{border:1px dashed var(--line);border-radius:10px;padding:10px 14px;margin-top:12px}
+details.method summary{cursor:pointer;font-weight:700}
+.method ol{margin:8px 0 0;padding-left:22px}
+.method li{margin:4px 0}
+.eq{font-weight:600;white-space:nowrap}
+.steps ol{padding-left:22px;margin:6px 0}
+.steps li{margin:6px 0}
+.take{border-left:5px solid var(--hot);background:var(--surface2);padding:10px 12px;border-radius:0 8px 8px 0;margin-top:12px}
+
+.insight .opt{display:block;width:100%;text-align:left;margin:6px 0;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface2);cursor:pointer}
+.insight .opt:hover:not([disabled]){border-color:var(--cold)}
+.insight .opt.right{border-color:var(--ok);background:var(--okbg)}
+.insight .opt.wrong{border-color:var(--hot);background:var(--badbg)}
+.locked{color:var(--muted);font-size:.93rem;padding:14px;border:1px dashed var(--line);border-radius:10px;text-align:center}
+
+.sl{margin:10px 0}
+.sl label{display:flex;justify-content:space-between;font-size:.9rem}
+.sl label b{font-weight:700}
+.sl input[type=range]{width:100%;accent-color:var(--hot)}
+.outs{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:10px 0}
+.out{background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.out .k{font-size:.8rem;color:var(--muted)}
+.out .v{font-weight:750;font-stretch:112%;font-size:1.1rem}
+.bars .bar{margin:6px 0}
+.bars .bl{display:flex;justify-content:space-between;font-size:.84rem}
+.bars .bt{height:10px;background:var(--surface2);border-radius:5px;overflow:hidden;border:1px solid var(--line)}
+.bars .bf{height:100%;background:linear-gradient(90deg,var(--i2),var(--i3),var(--i4));transition:width .25s}
+svg.plot{width:100%;height:auto;display:block}
+svg.plot text{fill:var(--muted);font-family:inherit;font-size:11px}
+svg.plot .ax{stroke:var(--line)}
+
+.intro p,.intro li{max-width:72ch}
+.intro ol li{margin:6px 0}
+.report table{width:100%;border-collapse:collapse;font-size:.93rem}
+.report td,.report th{padding:6px;border-bottom:1px solid var(--line);text-align:left}
+.report input{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);width:min(320px,100%)}
+.small{font-size:.86rem;color:var(--muted)}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Heat Leak Hunt</h1>
+      <p>CHEN 3786 · Heat transfer fundamentals (Ch. 15) and steady-state conduction (Ch. 17)</p>
+    </div>
+    <div class="scorebox">
+      <div class="score" id="totalScore">0<small>points</small></div>
+      <button class="btn ghost" id="themeBtn" aria-label="Toggle light or dark theme">Theme</button>
+    </div>
+  </header>
+
+  <nav class="track" aria-label="Stations">
+    <div class="ramp" aria-hidden="true"></div>
+    <div class="nodes" id="nodes"></div>
+    <div class="chap"><span>Start</span><span>Chapter 15 · stations 1–3</span><span>Chapter 17 · stations 4–8</span><span>Report</span></div>
+  </nav>
+
+  <main id="main"></main>
+</div>
+
+<script>
+/* ===================== utilities ===================== */
+const SIG = 0.1714e-8; // Btu/hr·ft²·°R⁴
+const R = T => T + 459.67;
+function rng(seed){let a=seed>>>0;return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+function pick(r,min,max,step){const n=Math.round((max-min)/step);const v=min+Math.floor(r()*(n+1))*step;return +v.toFixed(6);}
+function choose(r,arr){return arr[Math.floor(r()*arr.length)];}
+function f(x,s=4){if(!isFinite(x))return '—';if(x===0)return '0';const v=Number(x.toPrecision(s));return v.toLocaleString('en-US',{minimumSignificantDigits:s,maximumSignificantDigits:s});}
+function fd(x,d=1){return Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const tanh=Math.tanh, cosh=Math.cosh, ln=Math.log, PI=Math.PI;
+
+/* ===================== levels ===================== */
+const MATERIALS=[{n:'Stainless steel',k:9.4},{n:'Carbon steel',k:25},{n:'Aluminum',k:118},{n:'Copper',k:223}];
+const PIPES=[{n:'1-in sch 40',id:1.049,od:1.315},{n:'2-in sch 40',id:2.067,od:2.375},{n:'3-in sch 40',id:3.068,od:3.5},{n:'4-in sch 40',id:4.026,od:4.5}];
+
+const LEVELS=[
+/* ---------- 1 ---------- */
+{id:1,ch:15,short:'Furnace wall',title:'Furnace wall',
+ story:'The plant’s heat-treating furnace has a firebrick wall. Maintenance wants to know how much heat leaks through it and how hot the brick is partway through.',
+ gen(r){const Lin=pick(r,6,12,1);return{k:pick(r,0.5,1.2,0.05),Lin,T1:pick(r,1200,1800,50),T2:pick(r,200,400,25),x:pick(r,1,Lin-1,1)};},
+ given:p=>[['Thermal conductivity, k',p.k,'Btu/hr·ft·°F'],['Wall thickness, L',p.Lin,'in'],['Inner surface temperature, T<sub>1</sub>',p.T1,'°F'],['Outer surface temperature, T<sub>2</sub>',p.T2,'°F'],['Depth from inner surface, x',p.x,'in']],
+ calc(p){const L=p.Lin/12;const q=p.k*(p.T1-p.T2)/L;const Tx=p.T1-(p.T1-p.T2)*p.x/p.Lin;return{L,q,Tx,R:L/p.k};},
+ asks:[{key:'q',label:'Heat flux through the wall, q/A',unit:'Btu/hr·ft²',tol:{rel:.02}},{key:'Tx',label:'Temperature at depth x from the inner surface',unit:'°F',tol:{abs:1.5}}],
+ method:['Convert L to feet (divide inches by 12).','Fourier’s law for a plane wall: <span class="eq">q/A = k(T<sub>1</sub> − T<sub>2</sub>)/L</span>.','With constant k and no generation the profile is linear: <span class="eq">T(x) = T<sub>1</sub> − (T<sub>1</sub> − T<sub>2</sub>)·x/L</span>. Here x and L can stay in inches because only their ratio matters.'],
+ steps:(p,c)=>[`L = ${p.Lin}/12 = ${f(c.L)} ft`,`q/A = (${p.k})(${p.T1} − ${p.T2})/${f(c.L)} = <b>${f(c.q)} Btu/hr·ft²</b>`,`T(x) = ${p.T1} − (${p.T1 - p.T2})(${p.x}/${p.Lin}) = <b>${fd(c.Tx)} °F</b>`],
+ take:'Constant k gives a straight-line profile. Real firebrick has k that changes with temperature, which would bend the line.',
+ insight:{q:'If the brick’s thermal conductivity were doubled and both surface temperatures stayed the same, the heat flux would…',opts:['halve','stay the same','double','quadruple'],a:2,why:'q/A = kΔT/L is directly proportional to k. Doubling k doubles the flux. Equivalently, the conduction resistance L/k is cut in half.'},
+ sliders:[{key:'k',label:'Brick k',min:.1,max:2,step:.05,unit:'Btu/hr·ft·°F'},{key:'Lin',label:'Thickness L',min:2,max:24,step:1,unit:'in'}],
+ explore(p){const c=this.calc(p);return{outs:[['Heat flux q/A',f(c.q)+' Btu/hr·ft²'],['Conduction resistance L/k',f(c.R)+' hr·ft²·°F/Btu'],['T at x = '+p.x+' in',p.x<=p.Lin?fd(c.Tx)+' °F':'outside wall']],
+   plot:{xl:'Distance from inner surface (in)',yl:'T (°F)',series:[[[0,p.T1],[p.Lin,p.T2]]],marks:[{x:Math.min(p.x,p.Lin),label:'x'}]}};}
+},
+/* ---------- 2 ---------- */
+{id:2,ch:15,short:'Steam line',title:'Bare steam line in a large room',
+ story:'A bare steam line runs through the warehouse. The supervisor thinks radiation is negligible “because the pipe isn’t glowing.” Check the numbers.',
+ gen(r){const Tinf=pick(r,60,80,5);return{D:pick(r,2,6,.5),Ts:pick(r,250,400,10),Tinf,h:pick(r,1,2.5,.1),eps:pick(r,.6,.95,.05)};},
+ given:p=>[['Pipe outside diameter, D',p.D,'in'],['Pipe surface temperature, T<sub>s</sub>',p.Ts,'°F'],['Room air and wall temperature, T<sub>∞</sub> = T<sub>sur</sub>',p.Tinf,'°F'],['Convective coefficient, h',p.h,'Btu/hr·ft²·°F'],['Surface emissivity, ε',p.eps,'–'],['Stefan–Boltzmann constant, σ','0.1714 × 10⁻⁸','Btu/hr·ft²·°R⁴']],
+ calc(p){const A=PI*p.D/12;const qc=p.h*A*(p.Ts-p.Tinf);const Ts=R(p.Ts),Tu=R(p.Tinf);const qr=p.eps*SIG*A*(Ts**4-Tu**4);const hr=qr/(A*(p.Ts-p.Tinf));return{A,qc,qr,hr,frac:100*qr/(qc+qr),Ts,Tu};},
+ asks:[{key:'qc',label:'Convective heat loss per foot of pipe',unit:'Btu/hr per ft',tol:{rel:.02}},{key:'qr',label:'Radiative heat loss per foot of pipe',unit:'Btu/hr per ft',tol:{rel:.02}},{key:'frac',label:'Percentage of the total loss that is radiation',unit:'%',tol:{abs:1.5}}],
+ method:['Area per foot of pipe: <span class="eq">A = πD·(1 ft)</span>, with D in feet.','Convection: <span class="eq">q<sub>conv</sub> = hA(T<sub>s</sub> − T<sub>∞</sub>)</span>. °F differences are fine here.','Radiation (small object in a large enclosure): <span class="eq">q<sub>rad</sub> = εσA(T<sub>s</sub><sup>4</sup> − T<sub>sur</sub><sup>4</sup>)</span>. Temperatures <b>must</b> be absolute: °R = °F + 459.67.','Radiation share = q<sub>rad</sub>/(q<sub>conv</sub> + q<sub>rad</sub>) × 100.'],
+ steps:(p,c)=>[`A = π(${p.D}/12)(1) = ${f(c.A)} ft² per ft`,`q<sub>conv</sub> = (${p.h})(${f(c.A)})(${p.Ts} − ${p.Tinf}) = <b>${f(c.qc)} Btu/hr per ft</b>`,`T<sub>s</sub> = ${f(c.Ts,6)} °R, T<sub>sur</sub> = ${f(c.Tu,6)} °R`,`q<sub>rad</sub> = (${p.eps})(0.1714×10⁻⁸)(${f(c.A)})(${f(c.Ts,6)}⁴ − ${f(c.Tu,6)}⁴) = <b>${f(c.qr)} Btu/hr per ft</b>`,`Radiation share = ${f(c.qr)}/(${f(c.qc)} + ${f(c.qr)}) = <b>${fd(c.frac)} %</b>`,`For comparison, h<sub>r</sub> = q<sub>rad</sub>/[A(T<sub>s</sub> − T<sub>sur</sub>)] = ${f(c.hr,3)} Btu/hr·ft²·°F, the same order as h = ${p.h}.`],
+ take:'With natural convection to air, h is small, so radiation from even a warm surface is the same order as convection. Never put °F into T⁴.',
+ insight:{q:'A student computes q_rad using 300⁴ − 70⁴ (temperatures in °F). Compared with the correct answer, the result is…',opts:['about right, since only the difference matters','far too small, because T⁴ is not linear and needs absolute temperature','far too large, because °F values are bigger than °R values','exactly zero'],a:1,why:'The T⁴ law is about absolute thermal energy, so the zero point matters. Only for linear laws (Fourier, Newton) does a constant offset cancel out of a difference.'},
+ sliders:[{key:'Ts',label:'Surface temperature',min:100,max:800,step:10,unit:'°F'},{key:'h',label:'Convective h',min:.5,max:10,step:.1,unit:'Btu/hr·ft²·°F'},{key:'eps',label:'Emissivity ε',min:.05,max:1,step:.05,unit:''}],
+ explore(p){const c=this.calc(p);return{outs:[['q_conv',f(c.qc)+' Btu/hr·ft'],['q_rad',f(c.qr)+' Btu/hr·ft'],['Radiation share',fd(c.frac)+' %'],['h_r',f(c.hr,3)+' Btu/hr·ft²·°F']],
+   barsTitle:'Where the heat goes',bars:[['Convection',c.qc],['Radiation',c.qr]]};}
+},
+/* ---------- 3 ---------- */
+{id:3,ch:15,short:'Window',title:'The frosty office window',
+ story:'Frost keeps forming on the inside of the control-room window. Find out how cold the inner glass actually gets and which resistance controls the heat loss.',
+ gen(r){return{Lg:choose(r,[.125,.1875,.25]),kg:.45,hi:pick(r,1.2,2,.1),ho:pick(r,3,6,.5),Ti:pick(r,68,72,1),To:pick(r,-10,20,5)};},
+ given:p=>[['Glass thickness, L',p.Lg,'in'],['Glass conductivity, k',p.kg,'Btu/hr·ft·°F'],['Indoor coefficient, h<sub>i</sub>',p.hi,'Btu/hr·ft²·°F'],['Outdoor coefficient, h<sub>o</sub>',p.ho,'Btu/hr·ft²·°F'],['Indoor air, T<sub>i</sub>',p.Ti,'°F'],['Outdoor air, T<sub>o</sub>',p.To,'°F']],
+ calc(p){const Ri=1/p.hi,Rg=(p.Lg/12)/p.kg,Ro=1/p.ho,S=Ri+Rg+Ro,U=1/S,q=U*(p.Ti-p.To),Tsi=p.Ti-q*Ri,Tso=Tsi-q*Rg;return{Ri,Rg,Ro,S,U,q,Tsi,Tso};},
+ asks:[{key:'U',label:'Overall heat transfer coefficient, U',unit:'Btu/hr·ft²·°F',tol:{rel:.02}},{key:'q',label:'Heat flux through the window, q/A',unit:'Btu/hr·ft²',tol:{rel:.02}},{key:'Tsi',label:'Inner glass surface temperature',unit:'°F',tol:{abs:1}}],
+ method:['Resistances per unit area, in series: <span class="eq">1/h<sub>i</sub></span>, <span class="eq">L/k</span> (L in ft), <span class="eq">1/h<sub>o</sub></span>.','<span class="eq">U = 1/ΣR</span> and <span class="eq">q/A = U(T<sub>i</sub> − T<sub>o</sub>)</span>.','The same flux crosses every resistance, so <span class="eq">T<sub>s,i</sub> = T<sub>i</sub> − (q/A)(1/h<sub>i</sub>)</span>.'],
+ steps:(p,c)=>[`R<sub>i</sub> = 1/${p.hi} = ${f(c.Ri)}; R<sub>glass</sub> = (${p.Lg}/12)/${p.kg} = ${f(c.Rg)}; R<sub>o</sub> = 1/${p.ho} = ${f(c.Ro)} (hr·ft²·°F/Btu)`,`ΣR = ${f(c.S)}, so U = 1/${f(c.S)} = <b>${f(c.U)} Btu/hr·ft²·°F</b>`,`q/A = (${f(c.U)})(${p.Ti} − (${p.To})) = <b>${f(c.q)} Btu/hr·ft²</b>`,`T<sub>s,i</sub> = ${p.Ti} − (${f(c.q)})(${f(c.Ri)}) = <b>${fd(c.Tsi)} °F</b> ${c.Tsi<32?'(below freezing: frost)':'(above freezing)'}`,`The glass is only ${fd(100*c.Rg/c.S)} % of ΣR; the indoor film is ${fd(100*c.Ri/c.S)} %.`],
+ take:'In a series circuit the largest resistance controls. A thin, conductive pane between two air films is almost never it.',
+ insight:{q:'Which single change would most reduce the heat loss through this window?',opts:['Double the glass thickness','Use glass with twice the conductivity','Add a second pane with a sealed air gap','Increase the outdoor coefficient h_o'],a:2,why:'The glass contributes only a few percent of the total resistance, so changing it barely matters. A sealed air gap adds a large new resistance in series. Increasing h_o would actually lower a resistance and raise the loss.'},
+ sliders:[{key:'Lg',label:'Glass thickness',min:.0625,max:1,step:.0625,unit:'in'},{key:'hi',label:'Indoor h<sub>i</sub>',min:.5,max:5,step:.1,unit:'Btu/hr·ft²·°F'},{key:'ho',label:'Outdoor h<sub>o</sub>',min:1,max:20,step:.5,unit:'Btu/hr·ft²·°F'},{key:'To',label:'Outdoor air',min:-30,max:50,step:5,unit:'°F'}],
+ explore(p){const c=this.calc(p);return{outs:[['U',f(c.U)+' Btu/hr·ft²·°F'],['q/A',f(c.q)+' Btu/hr·ft²'],['Inner glass',fd(c.Tsi)+' °F']],
+   barsTitle:'Share of total resistance',bars:[['Indoor film',c.Ri],['Glass',c.Rg],['Outdoor film',c.Ro]],pct:true,
+   plot:ladder([['Indoor air',p.Ti],['Inner glass',c.Tsi],['Outer glass',c.Tso],['Outdoor air',p.To]],['indoor film','glass','outdoor film'])};}
+},
+/* ---------- 4 ---------- */
+{id:4,ch:17,short:'Cold-room wall',title:'Cold-storage wall',
+ story:'A cold-storage room for catalyst samples is losing too much cooling. Its wall is concrete outside, foam insulation in the middle and plaster inside. Find the heat gain and the temperature where the concrete meets the foam.',
+ gen(r){return{To:pick(r,70,95,5),Tc:pick(r,-10,10,5),ho:pick(r,3,6,.5),hi:pick(r,1,2,.25),Lc:pick(r,4,8,1),kc:.8,Lf:pick(r,2,6,1),kf:pick(r,.015,.025,.005),Lp:.5,kp:.1};},
+ given:p=>[['Outside air, T<sub>o</sub>',p.To,'°F'],['Cold room air, T<sub>c</sub>',p.Tc,'°F'],['Outside coefficient, h<sub>o</sub>',p.ho,'Btu/hr·ft²·°F'],['Inside coefficient, h<sub>i</sub>',p.hi,'Btu/hr·ft²·°F'],['Concrete: thickness, k',p.Lc+' in, '+p.kc,'Btu/hr·ft·°F'],['Foam: thickness, k',p.Lf+' in, '+p.kf,'Btu/hr·ft·°F'],['Plaster: thickness, k',p.Lp+' in, '+p.kp,'Btu/hr·ft·°F']],
+ calc(p){const Ro=1/p.ho,Rc=(p.Lc/12)/p.kc,Rf=(p.Lf/12)/p.kf,Rp=(p.Lp/12)/p.kp,Ri=1/p.hi,S=Ro+Rc+Rf+Rp+Ri,q=(p.To-p.Tc)/S;const T1=p.To-q*Ro,T2=T1-q*Rc,T3=T2-q*Rf,T4=T3-q*Rp;return{Ro,Rc,Rf,Rp,Ri,S,q,T1,T2,T3,T4};},
+ asks:[{key:'S',label:'Total resistance per unit area, ΣR',unit:'hr·ft²·°F/Btu',tol:{rel:.02}},{key:'q',label:'Heat gain per unit area, q/A',unit:'Btu/hr·ft²',tol:{rel:.02}},{key:'T2',label:'Temperature at the concrete–foam interface',unit:'°F',tol:{abs:1.5}}],
+ method:['List five resistances in series from outside to inside: <span class="eq">1/h<sub>o</sub></span>, <span class="eq">L<sub>c</sub>/k<sub>c</sub></span>, <span class="eq">L<sub>f</sub>/k<sub>f</sub></span>, <span class="eq">L<sub>p</sub>/k<sub>p</sub></span>, <span class="eq">1/h<sub>i</sub></span>. Convert each L to feet.','<span class="eq">q/A = (T<sub>o</sub> − T<sub>c</sub>)/ΣR</span>.','March inward: <span class="eq">T<sub>interface</sub> = T<sub>o</sub> − (q/A)(R<sub>o</sub> + R<sub>concrete</sub>)</span>.'],
+ steps:(p,c)=>[`R<sub>o</sub> = ${f(c.Ro)}, R<sub>concrete</sub> = (${p.Lc}/12)/${p.kc} = ${f(c.Rc)}, R<sub>foam</sub> = (${p.Lf}/12)/${p.kf} = ${f(c.Rf)}, R<sub>plaster</sub> = (${p.Lp}/12)/${p.kp} = ${f(c.Rp)}, R<sub>i</sub> = ${f(c.Ri)}`,`ΣR = <b>${f(c.S)} hr·ft²·°F/Btu</b>`,`q/A = (${p.To} − (${p.Tc}))/${f(c.S)} = <b>${f(c.q)} Btu/hr·ft²</b>`,`T<sub>interface</sub> = ${p.To} − (${f(c.q)})(${f(c.Ro)} + ${f(c.Rc)}) = <b>${fd(c.T2)} °F</b>`,`Foam carries ${fd(100*c.Rf/c.S)} % of the resistance, so most of the temperature drop happens across it.`],
+ take:'Temperature drops in proportion to resistance. The interface next to the insulation stays close to the outside temperature.',
+ insight:{q:'Moisture freezing inside a wall is a concern. Where in this wall is the 32°F point most likely to be?',opts:['In the outside air film','Inside the concrete','Inside the foam','Inside the plaster'],a:2,why:'Almost all of the temperature drop happens across the foam, because it has most of the resistance. So the temperature passes through 32°F somewhere inside the foam layer.'},
+ sliders:[{key:'Lf',label:'Foam thickness',min:0,max:10,step:.5,unit:'in'},{key:'kf',label:'Foam k',min:.01,max:.05,step:.005,unit:'Btu/hr·ft·°F'},{key:'Lc',label:'Concrete thickness',min:2,max:16,step:1,unit:'in'}],
+ explore(p){const c=this.calc(p);return{outs:[['ΣR',f(c.S)],['q/A',f(c.q)+' Btu/hr·ft²'],['Concrete–foam',fd(c.T2)+' °F']],
+   barsTitle:'Share of total resistance',bars:[['Outside film',c.Ro],['Concrete',c.Rc],['Foam',c.Rf],['Plaster',c.Rp],['Inside film',c.Ri]],pct:true,
+   plot:ladder([['Outside air',p.To],['Concrete face',c.T1],['Concrete–foam',c.T2],['Foam–plaster',c.T3],['Plaster face',c.T4],['Room air',p.Tc]],['film','concrete','foam','plaster','film'])};}
+},
+/* ---------- 5 ---------- */
+{id:5,ch:17,short:'Insulated pipe',title:'Insulated steam header',
+ story:'The new steam header needs insulation. Operations want the heat loss per foot and the outer jacket temperature, which must be safe to touch.',
+ gen(r){return{Tst:pick(r,300,400,10),pipe:Math.floor(r()*4),ks:26,t:pick(r,1,3,.5),kins:pick(r,.03,.06,.005),hi:1000,ho:pick(r,1.5,3,.5),Tinf:pick(r,60,80,5)};},
+ given:p=>{const P=PIPES[p.pipe];return[['Steam temperature',p.Tst,'°F'],['Pipe ('+P.n+'): ID / OD',P.id+' / '+P.od,'in'],['Steel conductivity',p.ks,'Btu/hr·ft·°F'],['Insulation thickness',p.t,'in'],['Insulation conductivity',p.kins,'Btu/hr·ft·°F'],['Inside coefficient, h<sub>i</sub>',p.hi,'Btu/hr·ft²·°F'],['Outside coefficient, h<sub>o</sub>',p.ho,'Btu/hr·ft²·°F'],['Surrounding air',p.Tinf,'°F']];},
+ calc(p){const P=PIPES[p.pipe];const r1=P.id/24,r2=P.od/24,r3=r2+p.t/12;const Ri=1/(p.hi*2*PI*r1),Rs=ln(r2/r1)/(2*PI*p.ks),Rn=ln(r3/r2)/(2*PI*p.kins),Ro=1/(p.ho*2*PI*r3),S=Ri+Rs+Rn+Ro,q=(p.Tst-p.Tinf)/S;const T1=p.Tst-q*Ri,T2=T1-q*Rs,T3=T2-q*Rn;return{r1,r2,r3,Ri,Rs,Rn,Ro,S,q,T1,T2,T3};},
+ asks:[{key:'Rn',label:'Insulation resistance per foot of pipe',unit:'hr·°F/Btu',tol:{rel:.02}},{key:'q',label:'Heat loss per foot of pipe',unit:'Btu/hr per ft',tol:{rel:.02}},{key:'T3',label:'Outer surface temperature of the insulation',unit:'°F',tol:{abs:1.5}}],
+ method:['Radii in feet: r<sub>1</sub> = ID/2, r<sub>2</sub> = OD/2, r<sub>3</sub> = r<sub>2</sub> + insulation thickness.','Per foot of length (L = 1 ft): <span class="eq">R<sub>i</sub> = 1/(h<sub>i</sub>·2πr<sub>1</sub>)</span>, <span class="eq">R<sub>steel</sub> = ln(r<sub>2</sub>/r<sub>1</sub>)/(2πk<sub>s</sub>)</span>, <span class="eq">R<sub>ins</sub> = ln(r<sub>3</sub>/r<sub>2</sub>)/(2πk<sub>ins</sub>)</span>, <span class="eq">R<sub>o</sub> = 1/(h<sub>o</sub>·2πr<sub>3</sub>)</span>.','<span class="eq">q/L = (T<sub>steam</sub> − T<sub>∞</sub>)/ΣR</span>, then <span class="eq">T<sub>surface</sub> = T<sub>∞</sub> + (q/L)R<sub>o</sub></span>.'],
+ steps:(p,c)=>[`r<sub>1</sub> = ${f(c.r1)} ft, r<sub>2</sub> = ${f(c.r2)} ft, r<sub>3</sub> = ${f(c.r3)} ft`,`R<sub>i</sub> = ${f(c.Ri)}, R<sub>steel</sub> = ${f(c.Rs)}, R<sub>o</sub> = ${f(c.Ro)} hr·°F/Btu`,`R<sub>ins</sub> = ln(${f(c.r3)}/${f(c.r2)})/(2π·${p.kins}) = <b>${f(c.Rn)} hr·°F/Btu</b>`,`ΣR = ${f(c.S)}; q/L = (${p.Tst} − ${p.Tinf})/${f(c.S)} = <b>${f(c.q)} Btu/hr per ft</b>`,`T<sub>surface</sub> = ${p.Tinf} + (${f(c.q)})(${f(c.Ro)}) = <b>${fd(c.T3)} °F</b>`,`R<sub>i</sub> + R<sub>steel</sub> are only ${f(100*(c.Ri+c.Rs)/c.S,2)} % of ΣR, so they could be neglected.`],
+ take:'Radial resistances use ln(r_out/r_in). Each film uses the area at its own radius.',
+ insight:{q:'Why could the steam-side film and the steel wall be ignored here?',opts:['Steel is a perfect conductor','Their resistances are tiny compared with the insulation and outer air film','Heat does not flow through the steel','Condensing steam has a very low h'],a:1,why:'Condensing steam has a very high h and steel has a high k, so both resistances are a tiny fraction of the total. Steel is not a perfect conductor; its resistance is just small relative to the others.'},
+ sliders:[{key:'t',label:'Insulation thickness',min:0,max:6,step:.25,unit:'in'},{key:'kins',label:'Insulation k',min:.02,max:.1,step:.005,unit:'Btu/hr·ft·°F'},{key:'ho',label:'Outside h<sub>o</sub>',min:1,max:10,step:.5,unit:'Btu/hr·ft²·°F'}],
+ explore(p){const c=this.calc(p);return{outs:[['q/L',f(c.q)+' Btu/hr·ft'],['Jacket surface',fd(c.T3)+' °F'],['ΣR',f(c.S)]],
+   barsTitle:'Share of total resistance',bars:[['Steam film',c.Ri],['Steel',c.Rs],['Insulation',c.Rn],['Outer film',c.Ro]],pct:true,
+   plot:ladder([['Steam',p.Tst],['Pipe inner',c.T1],['Pipe outer',c.T2],['Jacket',c.T3],['Air',p.Tinf]],['film','steel','insulation','film'])};}
+},
+/* ---------- 6 ---------- */
+{id:6,ch:17,short:'Wire coating',title:'Coating a hot wire',
+ story:'An electrician asks whether the plastic coating on a heater lead makes it run hotter. Use the critical radius to find out.',
+ gen(r){return{rw:pick(r,.05,.25,.01),k:pick(r,.08,.15,.01),h:pick(r,1.5,3,.25),Tw:pick(r,120,180,5),Tinf:pick(r,70,90,5),t:pick(r,.05,.2,.05)};},
+ given:p=>[['Wire radius',p.rw,'in'],['Coating conductivity, k',p.k,'Btu/hr·ft·°F'],['Outside coefficient, h',p.h,'Btu/hr·ft²·°F'],['Wire surface temperature (held fixed)',p.Tw,'°F'],['Air temperature',p.Tinf,'°F'],['Coating thickness to evaluate',p.t,'in']],
+ calc(p){const rw=p.rw/12,rc=p.k/p.h,dT=p.Tw-p.Tinf;const qb=p.h*2*PI*rw*dT;const qr=r2=>dT/(ln(r2/rw)/(2*PI*p.k)+1/(p.h*2*PI*r2));const r2=rw+p.t/12;return{rw,rc,rcin:rc*12,dT,qb,qt:qr(r2),qc:qr(rc),r2,qr};},
+ asks:[{key:'rcin',label:'Critical radius of insulation',unit:'in',tol:{rel:.02}},{key:'qb',label:'Heat loss per foot from the bare wire',unit:'Btu/hr per ft',tol:{rel:.02}},{key:'qt',label:'Heat loss per foot with the given coating thickness',unit:'Btu/hr per ft',tol:{rel:.02}}],
+ method:['Critical radius for a cylinder: <span class="eq">r<sub>c</sub> = k/h</span> (gives feet; multiply by 12 for inches).','Bare wire: <span class="eq">q/L = h(2πr<sub>w</sub>)(T<sub>w</sub> − T<sub>∞</sub>)</span>.','Coated: <span class="eq">q/L = (T<sub>w</sub> − T<sub>∞</sub>)/[ln(r<sub>2</sub>/r<sub>w</sub>)/(2πk) + 1/(h·2πr<sub>2</sub>)]</span>, with r<sub>2</sub> = r<sub>w</sub> + thickness.'],
+ steps:(p,c)=>[`r<sub>c</sub> = ${p.k}/${p.h} = ${f(c.rc)} ft = <b>${f(c.rcin)} in</b>`,`Bare: q/L = (${p.h})(2π)(${f(c.rw)})(${c.dT}) = <b>${f(c.qb)} Btu/hr per ft</b>`,`r<sub>2</sub> = ${f(c.rw)} + ${p.t}/12 = ${f(c.r2)} ft`,`Coated: q/L = ${c.dT}/[ln(${f(c.r2)}/${f(c.rw)})/(2π·${p.k}) + 1/(${p.h}·2π·${f(c.r2)})] = <b>${f(c.qt)} Btu/hr per ft</b>`,`Since r<sub>w</sub> &lt; r<sub>c</sub>, the coating ${c.qt>c.qb?'increases':'decreases'} the heat loss. The maximum, at r<sub>c</sub>, is ${f(c.qc)} Btu/hr per ft.`],
+ take:'Insulation adds conduction resistance but also outer surface area. Below r_c = k/h, the extra area wins and heat loss goes up.',
+ insight:{q:'The coating thickness is increased steadily from zero. The heat loss from the wire…',opts:['decreases steadily','increases steadily','rises to a maximum at r_c, then decreases','stays constant'],a:2,why:'Total resistance is smallest when the outer radius equals k/h. Before that point, adding coating lowers the total resistance; after it, adding coating raises it.'},
+ sliders:[{key:'t',label:'Coating thickness',min:0,max:1.5,step:.025,unit:'in'},{key:'k',label:'Coating k',min:.03,max:.3,step:.01,unit:'Btu/hr·ft·°F'},{key:'h',label:'Outside h',min:.5,max:6,step:.25,unit:'Btu/hr·ft²·°F'}],
+ explore(p){const c=this.calc(p);const pts=[];const rmax=Math.max(4*c.rc,c.r2*1.2);for(let i=0;i<=80;i++){const r2=c.rw+(rmax-c.rw)*i/80;pts.push([r2*12,i===0?c.qb:c.qr(r2)]);}
+   return{outs:[['r_c',f(c.rcin)+' in'],['Bare wire',f(c.qb)+' Btu/hr·ft'],['With coating',f(p.t>0?c.qt:c.qb)+' Btu/hr·ft']],
+   plot:{xl:'Outer radius of coating (in)',yl:'q/L (Btu/hr·ft)',series:[pts],marks:[{x:c.rcin,label:'r_c'},{x:c.r2*12,label:'yours'}],plain:true}};}
+},
+/* ---------- 7 ---------- */
+{id:7,ch:17,short:'Pin fin',title:'Pin fin on an electronics enclosure',
+ story:'A motor-control enclosure needs extra cooling. You are testing one pin fin before ordering a few hundred.',
+ gen(r){return{mat:Math.floor(r()*4),D:pick(r,.125,.5,.125),Lin:pick(r,1,4,.5),h:pick(r,3,10,1),Tb:pick(r,150,250,10),Tinf:pick(r,60,80,5)};},
+ given:p=>[['Fin material, k',MATERIALS[p.mat].n+', '+MATERIALS[p.mat].k,'Btu/hr·ft·°F'],['Fin diameter, D',p.D,'in'],['Fin length, L',p.Lin,'in'],['Convective coefficient, h',p.h,'Btu/hr·ft²·°F'],['Base temperature, T<sub>b</sub>',p.Tb,'°F'],['Air temperature, T<sub>∞</sub>',p.Tinf,'°F'],['Tip condition','insulated (adiabatic)','']],
+ calc(p){const k=MATERIALS[p.mat].k,D=p.D/12,L=p.Lin/12,P=PI*D,Ac=PI*D*D/4,m=Math.sqrt(p.h*P/(k*Ac)),mL=m*L,M=Math.sqrt(p.h*P*k*Ac),th=p.Tb-p.Tinf,q=M*th*tanh(mL),eta=100*tanh(mL)/mL,eff=q/(p.h*Ac*th),Ttip=p.Tinf+th/cosh(mL);return{k,D,L,P,Ac,m,mL,M,th,q,eta,eff,Ttip};},
+ asks:[{key:'m',label:'Fin parameter m',unit:'ft⁻¹',tol:{rel:.02}},{key:'q',label:'Heat transfer rate from the fin',unit:'Btu/hr',tol:{rel:.02}},{key:'eta',label:'Fin efficiency, η<sub>f</sub>',unit:'%',tol:{abs:1.5}}],
+ method:['D and L in feet. For a round pin: <span class="eq">P = πD</span>, <span class="eq">A<sub>c</sub> = πD²/4</span>, so <span class="eq">m = √(hP/kA<sub>c</sub>) = √(4h/kD)</span>.','Insulated tip: <span class="eq">q<sub>f</sub> = √(hPkA<sub>c</sub>)·(T<sub>b</sub> − T<sub>∞</sub>)·tanh(mL)</span>.','<span class="eq">η<sub>f</sub> = tanh(mL)/(mL)</span>. If your calculator lacks tanh: tanh(x) = (e<sup>2x</sup> − 1)/(e<sup>2x</sup> + 1).'],
+ steps:(p,c)=>[`D = ${f(c.D)} ft, L = ${f(c.L)} ft, k = ${c.k}`,`m = √[4(${p.h})/((${c.k})(${f(c.D)}))] = <b>${f(c.m)} ft⁻¹</b>; mL = ${f(c.mL)}`,`√(hPkA<sub>c</sub>) = ${f(c.M)} Btu/hr·°F; tanh(${f(c.mL)}) = ${f(tanh(c.mL))}`,`q<sub>f</sub> = (${f(c.M)})(${c.th})(${f(tanh(c.mL))}) = <b>${f(c.q)} Btu/hr</b>`,`η<sub>f</sub> = ${f(tanh(c.mL))}/${f(c.mL)} = <b>${fd(c.eta)} %</b>`,`Effectiveness ε<sub>f</sub> = q<sub>f</sub>/(hA<sub>c</sub>θ<sub>b</sub>) = ${f(c.eff,3)}; tip temperature = ${fd(c.Ttip)} °F.`],
+ take:'Fins pay off when h is low and k is high. Long fins of low-k metal waste material because the tip ends up near air temperature.',
+ insight:{q:'You switch the fin from aluminum to stainless steel, keeping its size. The fin efficiency…',opts:['rises, because steel is stronger','falls, because the temperature drops faster along a low-k fin','is unchanged, because efficiency only depends on geometry','becomes exactly 100%'],a:1,why:'Lower k makes m larger, so mL increases and tanh(mL)/mL falls. More of the fin sits near air temperature, where it transfers little heat.'},
+ sliders:[{key:'mat',label:'Material',min:0,max:3,step:1,unit:'',names:MATERIALS.map(m=>m.n)},{key:'Lin',label:'Fin length',min:.25,max:8,step:.25,unit:'in'},{key:'h',label:'Convective h',min:1,max:50,step:1,unit:'Btu/hr·ft²·°F'}],
+ explore(p){const c=this.calc(p);const pts=[];for(let i=0;i<=60;i++){const x=c.L*i/60;pts.push([x*12,p.Tinf+c.th*cosh(c.m*(c.L-x))/cosh(c.mL)]);}
+   return{outs:[['q_f',f(c.q)+' Btu/hr'],['η_f',fd(c.eta)+' %'],['Effectiveness',f(c.eff,3)],['Tip',fd(c.Ttip)+' °F']],
+   plot:{xl:'Distance from base (in)',yl:'T (°F)',series:[pts],ymin:p.Tinf}};}
+},
+/* ---------- 8 ---------- */
+{id:8,ch:17,short:'Heater plate',title:'Bonus: heater plate with internal generation',
+ story:'A flat electric heater plate generates heat uniformly and is cooled equally on both faces. The insulation behind the terminals fails above a certain temperature, so you need the hottest point.',
+ gen(r){return{Lin:pick(r,.25,1,.125),qg:pick(r,20000,100000,5000),k:pick(r,1,4,.5),h:pick(r,50,200,10),Tinf:pick(r,60,100,10)};},
+ given:p=>[['Half-thickness of plate, L',p.Lin,'in'],['Generation rate, q̇',p.qg.toLocaleString('en-US'),'Btu/hr·ft³'],['Plate conductivity, k',p.k,'Btu/hr·ft·°F'],['Coefficient on each face, h',p.h,'Btu/hr·ft²·°F'],['Fluid temperature, T<sub>∞</sub>',p.Tinf,'°F']],
+ calc(p){const L=p.Lin/12,qs=p.qg*L,Ts=p.Tinf+qs/p.h,Tm=Ts+p.qg*L*L/(2*p.k);return{L,qs,Ts,Tm};},
+ asks:[{key:'qs',label:'Heat flux leaving each face',unit:'Btu/hr·ft²',tol:{rel:.02}},{key:'Ts',label:'Surface temperature',unit:'°F',tol:{abs:1.5}},{key:'Tm',label:'Maximum (midplane) temperature',unit:'°F',tol:{abs:1.5}}],
+ method:['Energy balance on one half: all heat generated between the midplane and one face leaves through that face, so <span class="eq">q/A = q̇L</span> (L in ft).','Newton’s law at the face: <span class="eq">T<sub>s</sub> = T<sub>∞</sub> + q̇L/h</span>.','Parabolic profile, maximum at the midplane: <span class="eq">T<sub>max</sub> = T<sub>s</sub> + q̇L²/(2k)</span>.','This level uses the internal-generation result. Skip it if your section did not cover it.'],
+ steps:(p,c)=>[`L = ${p.Lin}/12 = ${f(c.L)} ft`,`q/A = (${p.qg})(${f(c.L)}) = <b>${f(c.qs)} Btu/hr·ft²</b>`,`T<sub>s</sub> = ${p.Tinf} + ${f(c.qs)}/${p.h} = <b>${fd(c.Ts)} °F</b>`,`T<sub>max</sub> = ${fd(c.Ts)} + (${p.qg})(${f(c.L)})²/(2·${p.k}) = <b>${fd(c.Tm)} °F</b>`],
+ take:'With generation the heat flux grows with distance from the midplane, which is what bends the profile into a parabola.',
+ insight:{q:'What is the heat flux at the midplane of the plate?',opts:['Zero','q̇L','q̇L/2','The same as at the surface'],a:0,why:'By symmetry, heat generated on each side flows outward to its own face, so nothing crosses the midplane. Zero flux means dT/dx = 0, which is where the maximum temperature sits.'},
+ sliders:[{key:'qg',label:'Generation q̇',min:5000,max:200000,step:5000,unit:'Btu/hr·ft³'},{key:'k',label:'Plate k',min:.5,max:20,step:.5,unit:'Btu/hr·ft·°F'},{key:'h',label:'Face h',min:5,max:300,step:5,unit:'Btu/hr·ft²·°F'}],
+ explore(p){const c=this.calc(p);const pts=[];for(let i=0;i<=60;i++){const x=-p.Lin+2*p.Lin*i/60;const xf=x/12;pts.push([x,c.Ts+p.qg*(c.L*c.L-xf*xf)/(2*p.k)]);}
+   return{outs:[['q/A at face',f(c.qs)+' Btu/hr·ft²'],['T_surface',fd(c.Ts)+' °F'],['T_max',fd(c.Tm)+' °F']],
+   plot:{xl:'Position from midplane (in)',yl:'T (°F)',series:[pts],ymin:p.Tinf,marks:[{x:0,label:'midplane'}]}};}
+}
+];
+
+function ladder(nodes,segs){return{ladder:true,nodes,segs};}
+
+/* ===================== state ===================== */
+const KEY='heatLeakHunt.v1';
+let S={name:'',lv:{},best:{}};
+try{const s=localStorage.getItem(KEY);if(s)S=Object.assign(S,JSON.parse(s));}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
+function newSeed(){return 1000+Math.floor(Math.random()*9000);}
+function lvState(L){if(!S.lv[L.id]){S.lv[L.id]={seed:newSeed(),tries:{},status:{},pts:{},ins:null};save();}return S.lv[L.id];}
+function params(L,st){return L.gen(rng(st.seed*97+L.id));}
+const maxPts=L=>L.asks.length*100+50;
+function lvScore(st){let s=0;for(const k in st.pts)s+=st.pts[k];if(st.ins)s+=st.ins.pts;return s;}
+function asksDone(L,st){return L.asks.every(a=>st.status[a.key]);}
+function lvDone(L,st){return asksDone(L,st)&&!!st.ins;}
+function stars(L){const b=S.best[L.id];if(b==null)return '';const fr=b/maxPts(L);return fr>=.9?'★★★':fr>=.6?'★★☆':'★☆☆';}
+function total(){return LEVELS.reduce((a,L)=>a+(S.best[L.id]||0),0);}
+
+/* ===================== rendering ===================== */
+let view=location.hash.replace('#','')||'start';
+const main=document.getElementById('main');
+
+function renderNodes(){
+  const n=document.getElementById('nodes');
+  const items=[{v:'start',d:'?',l:'How to play'}].concat(LEVELS.map(L=>({v:'s'+L.id,d:L.id,l:L.short,L})),[{v:'report',d:'✓',l:'Report'}]);
+  n.innerHTML=items.map(it=>{const done=it.L&&S.best[it.L.id]!=null;return `<button class="node ${view===it.v?'active':''} ${done?'done':''}" data-v="${it.v}" aria-label="${esc(it.l)}"><span class="dot">${it.d}</span><span class="lbl">${esc(it.l)}</span><span class="stars">${it.L?stars(it.L):''}</span></button>`;}).join('');
+  n.querySelectorAll('.node').forEach(b=>b.onclick=()=>go(b.dataset.v));
+  document.getElementById('totalScore').innerHTML=`${total()}<small>of ${LEVELS.reduce((a,L)=>a+maxPts(L),0)} points</small>`;
+}
+function go(v){view=v;try{history.replaceState(null,'','#'+v);}catch(e){location.hash=v;}render();window.scrollTo({top:0});}
+window.addEventListener('hashchange',()=>{const v=location.hash.replace('#','');if(v&&v!==view){view=v;render();}});
+
+function render(){
+  renderNodes();
+  if(view==='report')return renderReport();
+  const L=LEVELS.find(x=>'s'+x.id===view);
+  if(!L)return renderStart();
+  renderLevel(L);
+}
+
+function renderStart(){
+  main.innerHTML=`<div class="panel intro">
+  <h2>You’re the new process engineer. Find the heat leaks.</h2>
+  <p>Eight stations around the plant each have a heat transfer problem. At each one you calculate the answers by hand, type them in, and the app checks them. When you finish, the station unlocks an explorer where you can move sliders and watch the physics respond.</p>
+  <h3>How scoring works</h3>
+  <ol>
+    <li>Each calculation is worth 100 points on the first try, 60 on the second and 30 on the third. After three misses, the answer is shown and you get 0.</li>
+    <li>Answers within ±2% count as correct. Temperatures must be within ±1 to ±1.5°F (shown on each question).</li>
+    <li>Each station ends with a concept question worth 50 points. You get one try.</li>
+    <li>Stars show your best score at each station. “New numbers” gives you a fresh version of the problem; your best score is kept.</li>
+  </ol>
+  <h3>How to verify the app by hand</h3>
+  <ol>
+    <li>Copy the <b>Given</b> table onto paper exactly as shown. The values are already rounded, so you and the app start from identical numbers.</li>
+    <li>Open <b>Hand-calc method</b> at each station. It lists the equations in the order to use them.</li>
+    <li>Convert inches to feet before using them in k, h or area terms. Use °F for temperature differences but °R (°F + 459.67) inside any T⁴ term.</li>
+    <li>Keep at least four significant figures until the final answer.</li>
+    <li>After you finish a station, <b>Worked solution</b> shows every intermediate value, so you can find exactly where your hand calculation differs.</li>
+    <li>Every problem has a <b>problem code</b> (for example 5-4821). Your instructor can load the same code to get your exact numbers.</li>
+  </ol>
+  <p class="small">Units are US customary to match the course appendix. Station 8 uses the internal-generation result and is a bonus. Progress is saved in this browser only.</p>
+  <div class="toolbar"><button class="btn primary" id="startBtn">Go to station 1</button></div>
+  </div>`;
+  document.getElementById('startBtn').onclick=()=>go('s1');
+}
+
+function givenTable(L,p){return `<table class="given">${L.given(p).map(g=>`<tr><td>${g[0]}</td><td class="v">${g[1]}</td><td class="u">${g[2]}</td></tr>`).join('')}</table>`;}
+
+function renderLevel(L){
+  const st=lvState(L), p=params(L,st), c=L.calc(p);
+  const allDone=asksDone(L,st);
+  const askHTML=L.asks.map(a=>{
+    const s=st.status[a.key],t=st.tries[a.key]||0;
+    const tolTxt=a.tol.rel?`±${a.tol.rel*100}%`:`±${a.tol.abs} ${a.unit}`;
+    let fb='';
+    if(s==='ok')fb=`<div class="fb ok">Correct: ${a.unit.includes('°F')&&!a.unit.includes('·')?fd(c[a.key]):f(c[a.key])} ${a.unit}. +${st.pts[a.key]} points.</div>`;
+    else if(s==='rev')fb=`<div class="fb rev">The answer is ${a.unit.includes('°F')&&!a.unit.includes('·')?fd(c[a.key]):f(c[a.key])} ${a.unit}. Compare with the worked solution to find the slip.</div>`;
+    else if(t>0)fb=`<div class="fb bad">Not within ${tolTxt}. ${3-t} ${3-t===1?'try':'tries'} left. Check units and conversions.</div>`;
+    return `<div class="ask ${s==='ok'?'ok':''}"><div class="q">${a.label}</div>
+      <div class="row"><input type="text" inputmode="decimal" id="in-${a.key}" aria-label="${esc(a.label.replace(/<[^>]+>/g,''))}" ${s?'disabled':''} value="${s&&st.last&&st.last[a.key]!=null?esc(st.last[a.key]):''}"><span class="unit">${a.unit}</span>
+      ${s?'':`<button class="btn" data-check="${a.key}">Check</button>`}<span class="tries">tolerance ${tolTxt}</span></div>${fb}</div>`;
+  }).join('');
+
+  let ins='';
+  if(!allDone)ins=`<div class="locked">Finish the calculations to unlock the concept question.</div>`;
+  else{const I=L.insight;ins=`<p><b>${I.q}</b></p>`+I.opts.map((o,i)=>{let cls='';if(st.ins){if(i===I.a)cls='right';else if(i===st.ins.choice)cls='wrong';}return `<button class="opt ${cls}" data-opt="${i}" ${st.ins?'disabled':''}>${esc(o)}</button>`;}).join('')+(st.ins?`<div class="take">${st.ins.pts?'Correct, +50 points. ':'Not quite. '}${I.why}</div>`:'');}
+
+  const score=lvScore(st);
+  main.innerHTML=`<div class="grid">
+  <div>
+    <section class="panel">
+      <div class="meta">Station ${L.id} · Chapter ${L.ch} · problem code <span class="code">${L.id}-${st.seed}</span></div>
+      <h2>${L.title}</h2>
+      <p class="story">${L.story}</p>
+      <h3>Given</h3>${givenTable(L,p)}
+      <details class="method"><summary>Hand-calc method</summary><ol>${L.method.map(m=>`<li>${m}</li>`).join('')}</ol></details>
+      <h3>Calculate</h3>${askHTML}
+      <div class="toolbar"><span class="small">This attempt: ${score} of ${maxPts(L)} points${S.best[L.id]!=null?` · best ${S.best[L.id]}`:''}</span></div>
+      <div class="toolbar"><button class="btn" id="newBtn">New numbers</button>${L.id<8?`<button class="btn primary" id="nextBtn">Next station</button>`:`<button class="btn primary" id="nextBtn">See report</button>`}</div>
+    </section>
+    <section class="panel">
+      <h2>Worked solution</h2>
+      ${allDone?`<div class="steps"><ol>${L.steps(p,c).map(s=>`<li>${s}</li>`).join('')}</ol></div><div class="take"><b>Key idea.</b> ${L.take}</div>`:`<div class="locked">Appears after you answer or reveal every calculation, so you can compare it line by line with your work.</div>`}
+    </section>
+  </div>
+  <div>
+    <section class="panel insight"><h2>Concept check</h2>${ins}</section>
+    <section class="panel"><h2>Explore</h2>${allDone?`<p class="small">Start from your problem and move the sliders. The numbers update with the same equations you used.</p><div id="explore"></div>`:`<div class="locked">Unlocks after the calculations. Work it out on paper first.</div>`}</section>
+  </div></div>`;
+
+  main.querySelectorAll('[data-check]').forEach(b=>b.onclick=()=>check(L,b.dataset.check));
+  main.querySelectorAll('input[id^="in-"]').forEach(inp=>inp.addEventListener('keydown',e=>{if(e.key==='Enter')check(L,inp.id.slice(3));}));
+  main.querySelectorAll('[data-opt]').forEach(b=>b.onclick=()=>{const i=+b.dataset.opt;st.ins={choice:i,pts:i===L.insight.a?50:0};finish(L,st);save();render();});
+  document.getElementById('newBtn').onclick=()=>{S.lv[L.id]={seed:newSeed(),tries:{},status:{},pts:{},ins:null};save();render();};
+  document.getElementById('nextBtn').onclick=()=>go(L.id<8?'s'+(L.id+1):'report');
+  if(allDone)setupExplore(L,p);
+}
+
+function check(L,key){
+  const st=lvState(L),p=params(L,st),c=L.calc(p),a=L.asks.find(x=>x.key===key);
+  const raw=document.getElementById('in-'+key).value.replace(/,/g,'').trim();
+  const v=parseFloat(raw);
+  if(raw===''||!isFinite(v)){const el=document.getElementById('in-'+key);el.setCustomValidity('Enter a number');el.reportValidity();return;}
+  st.tries[key]=(st.tries[key]||0)+1; st.last=st.last||{}; st.last[key]=raw;
+  const ans=c[key];
+  const ok=a.tol.rel?Math.abs(v-ans)<=a.tol.rel*Math.abs(ans):Math.abs(v-ans)<=a.tol.abs;
+  if(ok){st.status[key]='ok';st.pts[key]=[100,60,30][st.tries[key]-1];}
+  else if(st.tries[key]>=3){st.status[key]='rev';st.pts[key]=0;}
+  finish(L,st);save();render();
+  const nxt=L.asks.find(x=>!st.status[x.key]);if(nxt){const el=document.getElementById('in-'+nxt.key);if(el)el.focus();}
+}
+function finish(L,st){if(lvDone(L,st)){const s=lvScore(st);S.best[L.id]=Math.max(S.best[L.id]||0,s);}}
+
+/* ===================== explore ===================== */
+function setupExplore(L,p0){
+  const host=document.getElementById('explore');
+  const p=Object.assign({},p0);
+  host.innerHTML=L.sliders.map(s=>`<div class="sl"><label for="sl-${s.key}"><span>${s.label}</span><b id="sv-${s.key}"></b></label><input type="range" id="sl-${s.key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${Math.min(s.max,Math.max(s.min,p[s.key]))}"></div>`).join('')+`<div class="outs" id="outs"></div><div id="viz"></div><div class="toolbar"><button class="btn" id="resetEx">Back to my problem</button></div>`;
+  const upd=()=>{
+    L.sliders.forEach(s=>{p[s.key]=+document.getElementById('sl-'+s.key).value;document.getElementById('sv-'+s.key).textContent=s.names?s.names[p[s.key]]:`${f(p[s.key])} ${s.unit}`;});
+    const e=L.explore(p);
+    document.getElementById('outs').innerHTML=e.outs.map(o=>`<div class="out"><div class="k">${o[0]}</div><div class="v">${o[1]}</div></div>`).join('');
+    let viz='';
+    if(e.bars){const tot=e.bars.reduce((a,b)=>a+b[1],0);viz+=`<h3>${e.barsTitle}</h3><div class="bars">${e.bars.map(b=>`<div class="bar"><div class="bl"><span>${b[0]}</span><span>${e.pct?fd(100*b[1]/tot)+' %':f(b[1])+' Btu/hr·ft'}</span></div><div class="bt"><div class="bf" style="width:${100*b[1]/tot}%"></div></div></div>`).join('')}</div>`;}
+    if(e.plot)viz+=`<h3>${e.plot.ladder?'Temperature through the layers (not to scale)':'Profile'}</h3>`+plotSVG(e.plot);
+    document.getElementById('viz').innerHTML=viz;
+  };
+  host.querySelectorAll('input[type=range]').forEach(i=>i.oninput=upd);
+  document.getElementById('resetEx').onclick=()=>{L.sliders.forEach(s=>document.getElementById('sl-'+s.key).value=p0[s.key]);upd();};
+  upd();
+}
+
+let gid=0;
+function plotSVG(pl){
+  const W=460,H=250,ml=48,mr=14,mt=14,mb=pl.ladder?58:38;
+  let series,xs=[],ys=[];
+  if(pl.ladder){series=[pl.nodes.map((n,i)=>[i,n[1]])];}else series=pl.series;
+  series.forEach(s=>s.forEach(([x,y])=>{xs.push(x);ys.push(y);}));
+  let x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+  if(pl.ymin!=null)y0=Math.min(y0,pl.ymin);
+  if(pl.plain)y0=0;
+  if(y1-y0<1e-9){y1+=1;y0-=1;}
+  const pad=(y1-y0)*.08;y1+=pad;if(!pl.plain)y0-=pad;
+  if(x1===x0)x1=x0+1;
+  const X=x=>ml+(x-x0)/(x1-x0)*(W-ml-mr),Y=y=>mt+(y1-y)/(y1-y0)*(H-mt-mb);
+  const id='g'+(++gid);
+  const grad=pl.plain?`stroke="var(--hot)"`:`stroke="url(#${id})"`;
+  let s=`<svg class="plot" viewBox="0 0 ${W} ${H}" role="img" aria-label="Plot"><defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="${Y(y1)}" x2="0" y2="${Y(y0)}"><stop offset="0" stop-color="#f5a623"/><stop offset=".35" stop-color="#e0532d"/><stop offset=".7" stop-color="#a3245a"/><stop offset="1" stop-color="#2f5d8a"/></linearGradient></defs>`;
+  s+=`<line class="ax" x1="${ml}" y1="${mt}" x2="${ml}" y2="${H-mb}"/><line class="ax" x1="${ml}" y1="${H-mb}" x2="${W-mr}" y2="${H-mb}"/>`;
+  for(let i=0;i<=4;i++){const yv=y0+(y1-y0)*i/4;s+=`<line class="ax" x1="${ml-4}" y1="${Y(yv)}" x2="${ml}" y2="${Y(yv)}"/><text x="${ml-6}" y="${Y(yv)+4}" text-anchor="end">${f(yv,3)}</text>`;}
+  if(!pl.ladder){for(let i=0;i<=4;i++){const xv=x0+(x1-x0)*i/4;s+=`<text x="${X(xv)}" y="${H-mb+14}" text-anchor="middle">${f(xv,3)}</text>`;}s+=`<text x="${(ml+W-mr)/2}" y="${H-6}" text-anchor="middle">${esc(pl.xl)}</text>`;}
+  else{pl.segs.forEach((g,i)=>{s+=`<text x="${(X(i)+X(i+1))/2}" y="${H-mb+14}" text-anchor="middle">${esc(g)}</text>`;});
+       pl.nodes.forEach((n,i)=>{s+=`<line class="ax" x1="${X(i)}" y1="${mt}" x2="${X(i)}" y2="${H-mb}" stroke-dasharray="2 3"/>`;});}
+  s+=`<text transform="translate(12 ${(mt+H-mb)/2}) rotate(-90)" text-anchor="middle">${esc(pl.ladder?'T (°F)':pl.yl)}</text>`;
+  (pl.marks||[]).forEach((m,i)=>{if(m.x>=x0&&m.x<=x1)s+=`<line x1="${X(m.x)}" y1="${mt}" x2="${X(m.x)}" y2="${H-mb}" stroke="var(--cold)" stroke-dasharray="4 3"/><text x="${X(m.x)+4}" y="${mt+10+13*i}" style="fill:var(--cold)">${esc(m.label)}</text>`;});
+  series.forEach(sr=>{s+=`<polyline fill="none" ${grad} stroke-width="3.5" stroke-linejoin="round" points="${sr.map(([x,y])=>X(x).toFixed(1)+','+Y(y).toFixed(1)).join(' ')}"/>`;});
+  if(pl.ladder)pl.nodes.forEach((n,i)=>{s+=`<circle cx="${X(i)}" cy="${Y(n[1])}" r="4.5" fill="var(--surface)" stroke="var(--ink)" stroke-width="2"/><text x="${X(i)}" y="${Y(n[1])-9}" text-anchor="${i===0?'start':i===pl.nodes.length-1?'end':'middle'}" style="fill:var(--ink);font-weight:600">${fd(n[1])}</text>`;});
+  return s+'</svg>';
+}
+
+/* ===================== report ===================== */
+function renderReport(){
+  const rows=LEVELS.map(L=>{const st=S.lv[L.id];return `<tr><td>${L.id}. ${esc(L.title)}</td><td>${st?L.id+'-'+st.seed:'—'}</td><td>${S.best[L.id]!=null?S.best[L.id]+' / '+maxPts(L):'not finished'}</td><td style="color:var(--i4)">${stars(L)}</td></tr>`;}).join('');
+  main.innerHTML=`<div class="panel report">
+   <h2>Report card</h2>
+   <p class="small">Enter your name, then take a screenshot of this page to submit if your instructor asks for one.</p>
+   <p><label for="nm"><b>Name</b></label><br><input id="nm" value="${esc(S.name||'')}" placeholder="First and last name"></p>
+   <table><thead><tr><th>Station</th><th>Latest problem code</th><th>Best score</th><th>Stars</th></tr></thead><tbody>${rows}</tbody></table>
+   <p style="margin-top:14px"><b>Total: ${total()} of ${LEVELS.reduce((a,L)=>a+maxPts(L),0)} points</b> · ${new Date().toLocaleString()}</p>
+   <h3>Instructor tools</h3>
+   <p class="small">Load a student’s problem code to reproduce their exact numbers. This replaces your own attempt at that station but keeps your best score.</p>
+   <div class="toolbar"><input id="codeIn" placeholder="e.g. 5-4821" style="width:160px"><button class="btn" id="codeBtn">Load code</button><button class="btn ghost" id="resetAll">Reset all progress</button></div>
+   <p id="codeMsg" class="small"></p>
+  </div>`;
+  document.getElementById('nm').oninput=e=>{S.name=e.target.value;save();};
+  document.getElementById('codeBtn').onclick=()=>{
+    const m=document.getElementById('codeIn').value.trim().match(/^(\d)\s*-\s*(\d{4})$/);
+    const L=m&&LEVELS.find(x=>x.id===+m[1]);
+    if(!L){document.getElementById('codeMsg').textContent='Use the format station-number, for example 5-4821.';return;}
+    S.lv[L.id]={seed:+m[2],tries:{},status:{},pts:{},ins:null};save();go('s'+L.id);
+  };
+  document.getElementById('resetAll').onclick=()=>{if(confirm('Erase all progress and scores in this browser?')){S={name:S.name,lv:{},best:{}};save();render();}};
+}
+
+/* ===================== theme ===================== */
+document.getElementById('themeBtn').onclick=()=>{
+  const r=document.documentElement;const cur=r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  r.dataset.theme=cur==='dark'?'light':'dark';try{localStorage.setItem(KEY+'.theme',r.dataset.theme);}catch(e){}
+};
+try{const t=localStorage.getItem(KEY+'.theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}
+
+render();
+</script>
+</body>
+</html>
